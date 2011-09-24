@@ -128,10 +128,28 @@ module MediaWiki
     # * [:summary] Edit summary for history, string
     # * [:token] Use this existing edit token instead requesting a new one (useful for bulk loads)
     def create(title, content, options={})
-      form_data = {'action' => 'edit', 'title' => title, 'text' => content, 'summary' => (options[:summary] || ""), 'token' => get_token('edit', title)}
+      token = get_token('edit', title)
+      form_data = {'action' => 'edit', 'title' => title, 'text' => content, 'summary' => (options[:summary] || ""), 'token' => token}
       form_data['createonly'] = "" unless options[:overwrite]
       form_data['section'] = options[:section].to_s if options[:section]
-      make_api_request(form_data)
+      doc, continue = make_api_request(form_data)
+      result = doc.elements["edit"].attributes['result']
+      failure = (result != "Success")
+      
+      if failure and captcha = doc.elements["edit"].elements['captcha'] and @options[:captcha]
+        word = @options[:captcha].call(captcha)
+        form_data = {'action' => 'edit', 'title' => title, 'text' => content, 'summary' => (options[:summary] || ""), 'token' => token}
+        form_data['createonly'] = "" unless options[:overwrite]
+        form_data['section'] = options[:section].to_s if options[:section]
+        form_data['captchaid'] = captcha.attributes["id"]
+        form_data['captchaword'] = word
+        doc, continue = make_api_request(form_data)
+        result = doc.elements["edit"].attributes['result']
+        puts doc.to_s
+        failure = (result != "Success")
+      end
+      
+      raise MediaWiki::Exception.new "Edit failed: #{doc}" if failure
     end
 
     # Edit page
